@@ -1,0 +1,6 @@
+{
+  "// 1": "Defines Next.js frontend dependencies (React 18+, TypeScript, Tailwind CSS, Lucide Icons, Axios).",
+  "// 2": "Configures development, build, and linting scripts for the admin dashboard application.",
+  "// 3": "Ensures modern, type-safe fullstack web application standards for production deployment."
+}
+
