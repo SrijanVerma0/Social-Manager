@@ -20,7 +20,7 @@ async def run_end_to_end_test():
 
     # Sample AI Engineer Topic
     initial_state = {
-        "topic_seed": "GraphRAG vs Naive Vector Search in Multi-Agent Memory",
+        "topic_seed": "Semantic Caching with Redis: How Vector Similarity Cuts Production LLM API Bills by 60 Percent",
         "build_in_public_note": None,
         "raw_sources": [],
         "technical_analysis": None,
@@ -48,44 +48,22 @@ async def run_end_to_end_test():
     # 2. Inspect LinkedIn Post & Carousel
     linkedin = final_state.get("linkedin_draft")
     if linkedin:
-        print("💼 [2. LINKEDIN POST]:")
+        print("💼 [2. LINKEDIN POST & CAROUSEL]:")
         print(f"Hook: {linkedin.hook}")
         print(f"Carousel Slides Generated: {len(linkedin.carousel_deck.slides)} slides")
         print(f"Slide 1 Title: {linkedin.carousel_deck.slides[0].title}")
 
-    # 3. Inspect Video Creator Kit
-    video = final_state.get("video_script_draft")
-    if video:
-        print("\n🎥 [3. 1-2 MIN VIDEO CREATOR KIT]:")
-        print(f"Video Title: {video.video_title}")
-        print(f"Hook (0-15s): {video.hook_15s}")
-        print(f"Screen Code Preview:\n{video.screen_code_snippet[:150]}...")
-
-    # 4. Inspect Twitter Thread
-    twitter = final_state.get("twitter_draft")
-    if twitter:
-        print("\n🐦 [4. X / TWITTER THREAD]:")
-        print(f"Tweet 1 (Hook): {twitter.hook_tweet}")
-        print(f"Total Body Tweets: {len(twitter.body_tweets)}")
-
-    # 5. Inspect Longform Blog
+    # 3. Inspect Dev.to Blog
     blog = final_state.get("blog_draft")
     if blog:
-        print("\n✍️ [5. DEV.TO / MEDIUM ARTICLE]:")
+        print("\n✍️ [3. DEV.TO TECHNICAL ARTICLE]:")
         print(f"Article Title: {blog.title}")
         print(f"Article Word Count: ~{len(blog.markdown_content.split())} words")
 
-    # 6. Inspect Engagement Comments
-    engagement = final_state.get("engagement_draft")
-    if engagement:
-        print("\n💬 [6. FOUNDER ENGAGEMENT COMMENTS]:")
-        for i, c in enumerate(engagement.suggested_comments, 1):
-            print(f"Comment {i}: {c}")
-
-    # 7. Inspect Critic Score
+    # 4. Inspect Critic Score
     critic = final_state.get("critic_review")
     if critic:
-        print("\n🛡️ [7. CRITIC QUALITY EVALUATION]:")
+        print("\n🛡️ [4. CRITIC QUALITY EVALUATION]:")
         print(f"Overall Score: {critic.overall_score}/100")
         print(f"Technical Depth: {critic.technical_accuracy_score}/100 | Anti-Cringe: {critic.anti_cringe_score}/100")
         print(f"Passed: {critic.passed}")

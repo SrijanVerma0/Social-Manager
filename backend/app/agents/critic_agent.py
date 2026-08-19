@@ -1,11 +1,11 @@
 """
-1. Quality Evaluator and Anti-Cringe Rubric agent acting as the final gatekeeper before the approval queue.
-2. Scores drafts on technical accuracy, clarity, originality, and adherence to the Senior AI Engineer persona.
-3. Rejects hallucinated or low-effort drafts back to stylist nodes with specific correction feedback.
+Quality Evaluator and Anti-Cringe Rubric agent acting as the final gatekeeper.
+Loads rules from backend/app/prompts/critic_system_prompt.md
 """
 
 import json
 import logging
+from pathlib import Path
 from typing import Dict, Any
 from backend.app.agents.state import AgentState
 from backend.app.agents.llm_router import llm_router, ModelTier
@@ -14,63 +14,52 @@ from backend.app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-CRITIC_SYSTEM_PROMPT = """
-You are a Principal AI Reviewer and Senior Systems Gatekeeper.
-Your job is to strictly evaluate multi-platform content drafts before they reach the human approval queue.
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+CRITIC_PROMPT_FILE = PROMPTS_DIR / "critic_system_prompt.md"
 
-EVALUATION RUBRIC (Score 0-100 for each):
-1. TECHNICAL ACCURACY & DEPTH (0-100):
-   - Are the architectural explanations correct?
-   - Is the code syntax valid and logically sound?
-   - Are benchmarks/trade-offs realistic?
-2. ANTI-CRINGE & SENIOR PERSONA (0-100):
-   - ZERO tolerance for generic AI buzzwords ("delve", "tapestry", "unravel", "game-changing", "thrilled to share", "beacon", "testament").
-   - Does it sound like an authentic, experienced systems engineer sharing insights from the terminal?
-   - Is the tone organic, humble yet authoritative?
-
-PASS / FAIL CRITERIA:
-- OVERALL_SCORE = (Technical_Accuracy * 0.5) + (Anti_Cringe * 0.5)
-- If OVERALL_SCORE >= CRITIC_PASS_THRESHOLD -> passed = True
-- If OVERALL_SCORE < CRITIC_PASS_THRESHOLD -> passed = False
-
-If failed, write constructive, actionable critique_notes pointing out the exact buzzwords to remove or technical claims to fix.
-"""
-
+def load_critic_prompt() -> str:
+    """Reads the critic system prompt from markdown file."""
+    if not CRITIC_PROMPT_FILE.exists():
+        logger.warning("Critic prompt file not found, using default.")
+        return "You are a strict technical reviewer rejecting robotic or overly academic content."
+    with open(CRITIC_PROMPT_FILE, "r", encoding="utf-8") as f:
+        return f.read()
 
 async def critic_node(state: AgentState) -> Dict[str, Any]:
-    """
-    Critic Node in the LangGraph workflow.
-    Evaluates generated drafts against strict technical and anti-cringe standards.
-    """
-    logger.info("Starting Senior Persona & Anti-Cringe Quality Evaluation...")
+    """Evaluates generated drafts against strict human-authenticity and simplicity standards."""
+    logger.info("Starting Strict Anti-Bot & Human Voice Evaluation...")
     
     current_revisions = state.get("revision_count", 0)
+    linkedin_draft = state.get("linkedin_draft")
     
-    # Collect drafts summary for evaluation
+    # Send full LinkedIn content for comprehensive review
     evaluation_payload = {
-        "technical_analysis": state.get("technical_analysis", "")[:800],
-        "linkedin_hook": state.get("linkedin_draft").hook if state.get("linkedin_draft") else "N/A",
-        "video_script_hook": state.get("video_script_draft").hook_15s if state.get("video_script_draft") else "N/A",
-        "twitter_hook": state.get("twitter_draft").hook_tweet if state.get("twitter_draft") else "N/A",
+        "technical_topic": state.get("topic_seed", "N/A"),
+        "linkedin_hook": linkedin_draft.hook if linkedin_draft else "N/A",
+        "linkedin_body": linkedin_draft.body if linkedin_draft else "N/A",
+        "linkedin_takeaways": linkedin_draft.key_takeaways if linkedin_draft else [],
+        "carousel_slides_count": len(linkedin_draft.carousel_deck.slides) if linkedin_draft and linkedin_draft.carousel_deck else 0,
         "blog_title": state.get("blog_draft").title if state.get("blog_draft") else "N/A",
     }
 
     prompt = f"""
-Evaluate the following multi-platform content drafts against the Senior AI Engineer rubric.
-Target Pass Threshold: {settings.CRITIC_PASS_THRESHOLD}
+Evaluate the following multi-platform drafts against the STRICT HUMAN-BUILDER Rubric.
+Target Pass Threshold: 85/100
 Current Revision Attempt: {current_revisions}
 
-DRAFTS SUMMARY:
+DRAFTS FOR REVIEW:
 {json.dumps(evaluation_payload, indent=2)}
 
-Generate structured CriticEvaluation output.
+Enforce all rules strictly. If it sounds like an academic paper or is too long, FAIL it with specific critique notes.
 """
+
+    critic_system_prompt = load_critic_prompt()
 
     draft = await llm_router.generate(
         prompt=prompt,
-        system_prompt=CRITIC_SYSTEM_PROMPT,
+        system_prompt=critic_system_prompt,
         tier=ModelTier.REASONING,
-        temperature=0.2,  # Low temperature for strict, objective grading
+        temperature=0.1,  # Ultra-low temperature for strict grading
         response_model=CriticEvaluation,
     )
 
@@ -78,25 +67,24 @@ Generate structured CriticEvaluation output.
         try:
             evaluation = CriticEvaluation.model_validate_json(draft)
         except Exception:
-            # Fallback safe pass if json parsing glitch occurs
             evaluation = CriticEvaluation(
                 passed=True,
-                overall_score=88,
-                technical_accuracy_score=90,
-                anti_cringe_score=86,
+                overall_score=85,
+                technical_accuracy_score=85,
+                anti_cringe_score=85,
                 critique_notes="Automatic fallback pass.",
             )
     else:
         evaluation = draft
 
-    # Enforce pass if threshold met or maximum revisions reached (prevent deadlock)
-    if evaluation.overall_score >= settings.CRITIC_PASS_THRESHOLD or current_revisions >= 2:
+    # Pass if score >= 85 or max revisions reached (prevents infinite loops)
+    if evaluation.overall_score >= 85 or current_revisions >= 2:
         evaluation.passed = True
-        logger.info("Quality Check PASSED with Score: %d/100", evaluation.overall_score)
+        logger.info("✅ Quality Check PASSED with Score: %d/100", evaluation.overall_score)
         status = "APPROVED_BY_CRITIC"
     else:
         evaluation.passed = False
-        logger.warning("Quality Check FAILED with Score: %d/100. Triggering Revision Loop...", evaluation.overall_score)
+        logger.warning("❌ Quality Check FAILED (%d/100). Notes: %s", evaluation.overall_score, evaluation.critique_notes)
         status = "NEEDS_REVISION"
 
     return {
@@ -104,4 +92,3 @@ Generate structured CriticEvaluation output.
         "revision_count": current_revisions + 1,
         "status": status,
     }
-

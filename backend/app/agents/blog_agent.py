@@ -13,61 +13,102 @@ from backend.app.schemas.agent_schema import TechnicalArticleDraft
 
 logger = logging.getLogger(__name__)
 
-BLOG_SYSTEM_PROMPT = """
-You are a Principal Software Engineer and Technical Author writing in-depth tutorials on Dev.to and Medium.
-Your goal is to write a comprehensive, highly practical 1,200-2,000 word technical case study.
+import os
+from pathlib import Path
 
-ARTICLE STRUCTURE:
-1. TITLE & SUBTITLE: Direct, technical, and SEO-optimized (e.g. "Architecting Multi-Agent State Persistence with LangGraph and SQLite Checkpointers").
-2. THE PROBLEM IN PRODUCTION: Explain why naive implementations fail under real workloads (race conditions, memory leaks, latency bottlenecks).
-3. SYSTEM ARCHITECTURE: Include a clear text or Mermaid diagram representation explaining data flow and agent transitions.
-4. CODE IMPLEMENTATION: Provide full, runnable, and syntax-highlighted Python/LangGraph/OpenCV code snippets with line-by-line explanations.
-5. BENCHMARKS & TRADE-OFFS: Compare latency, memory, or compute costs with alternatives.
-6. PRACTICAL LESSONS & CONCLUSION: Concrete takeaways for production deployments.
-
-STRICT HUMAN-WRITING RULES:
-- NO robotic introduction clichés ("In this tutorial, we will delve into..."). Start directly with the engineering problem.
-- NO corporate filler buzzwords ("tapestry", "unravel", "game-changing", "revolutionary").
-- Write naturally with clear, pragmatic explanations as an experienced systems builder.
-"""
+def load_blog_prompt() -> str:
+    """Loads the dynamic Dev.to/Medium blog system prompt from the markdown file."""
+    prompt_path = Path(__file__).resolve().parent.parent / "prompts" / "blog_system_prompt.md"
+    if prompt_path.exists():
+        return prompt_path.read_text(encoding="utf-8")
+    return "You are an expert software engineer writing concise, high-signal developer guides."
 
 
 async def blog_node(state: AgentState) -> Dict[str, Any]:
     """
     Longform Blog Node in the LangGraph workflow.
-    Generates structured 1,200-2,000 word markdown tutorial for Dev.to and Medium.
+    Generates structured, lightweight 600-900 word markdown tutorial for Dev.to and Medium.
     """
-    logger.info("Generating Full-Length Technical Article (Dev.to / Medium)...")
+    logger.info("Generating Lightweight Technical Guide (Dev.to / Medium)...")
     
     technical_analysis = state.get("technical_analysis", "")
+    system_prompt = load_blog_prompt()
     
     prompt = f"""
-Transform the following technical analysis into a comprehensive 1,200-2,000 word Technical Markdown Tutorial:
+Write a concise, high-impact 600-900 word practical technical guide based on the following analysis:
 
 TECHNICAL ANALYSIS:
 {technical_analysis}
 
-Generate output matching the TechnicalArticleDraft schema.
+FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS:
+# TITLE: <Punchy, High-Authority Technical Title>
+## SUBTITLE: <Clean 1-Sentence Value Proposition>
+**TAGS:** ai, backend, softwareengineering, systemdesign
+
+<Write the crisp 600-900 word Markdown article with headers, short paragraphs, and a clean Python code snippet>
 """
 
-    draft = await llm_router.generate(
+    draft_text = await llm_router.generate(
         prompt=prompt,
-        system_prompt=BLOG_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tier=ModelTier.WRITER,
-        temperature=0.6,
-        max_tokens=3500,  # Longer token window for full-length article
-        response_model=TechnicalArticleDraft,
+        temperature=0.5,
+        max_tokens=2000,  # Lightweight token limit (saves 50%+ tokens)
     )
 
     logger.info("Technical Article Generated Successfully.")
     
-    if isinstance(draft, str):
+    # Clean extraction of Title, Subtitle, Tags, and Pure Markdown Body
+    title = state.get("topic_seed", "Technical Deep Dive")
+    subtitle = "A practical engineering guide"
+    tags = ["ai", "backend", "softwareengineering", "systemdesign"]
+    clean_markdown = draft_text.strip()
+    
+    # If LLM returned raw JSON string, extract the markdown_content cleanly
+    if clean_markdown.startswith("{") and "markdown_content" in clean_markdown:
         try:
-            parsed_draft = TechnicalArticleDraft.model_validate_json(draft)
+            import json, re
+            # Clean invalid escape sequences in JSON string
+            cleaned_json = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', clean_markdown)
+            data = json.loads(cleaned_json, strict=False)
+            title = data.get("title", title)
+            subtitle = data.get("subtitle", subtitle)
+            clean_markdown = data.get("markdown_content", clean_markdown)
+            tags = data.get("tags", tags)
         except Exception:
-            parsed_draft = None
-    else:
-        parsed_draft = draft
+            # Regex extraction for markdown_content field
+            import re
+            m = re.search(r'"markdown_content"\s*:\s*"(.*)"\s*,\s*"tags"', clean_markdown, re.DOTALL)
+            if m:
+                clean_markdown = m.group(1).encode().decode('unicode-escape')
+
+    # Standard Markdown header extraction
+    lines = clean_markdown.splitlines()
+    body_start_idx = 0
+    
+    for idx, line in enumerate(lines[:10]):
+        stripped = line.strip()
+        if stripped.startswith("# TITLE:") or stripped.startswith("# Title:"):
+            title = stripped.split(":", 1)[1].strip()
+            body_start_idx = max(body_start_idx, idx + 1)
+        elif stripped.startswith("## SUBTITLE:") or stripped.startswith("## Subtitle:"):
+            subtitle = stripped.split(":", 1)[1].strip()
+            body_start_idx = max(body_start_idx, idx + 1)
+        elif stripped.startswith("**TAGS:**") or stripped.startswith("TAGS:"):
+            tag_str = stripped.split(":", 1)[1].replace("*", "").strip()
+            tags = [t.strip() for t in tag_str.split(",") if t.strip()]
+            body_start_idx = max(body_start_idx, idx + 1)
+
+    # Remaining lines form the true markdown body
+    if body_start_idx > 0:
+        clean_markdown = "\n".join(lines[body_start_idx:]).strip()
+
+    parsed_draft = TechnicalArticleDraft(
+        title=title,
+        subtitle=subtitle,
+        markdown_content=clean_markdown,
+        tags=tags
+    )
 
     return {
         "blog_draft": parsed_draft,
